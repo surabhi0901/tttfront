@@ -9,29 +9,49 @@
         .board { display: grid; grid-template-columns: repeat(3, 100px); gap: 5px; margin-top: 20px; }
         .cell { width: 100px; height: 100px; font-size: 3em; cursor: pointer; background: #eee; border: 1px solid #ccc; display: flex; align-items: center; justify-content: center; }
         .info { font-size: 1.2em; margin-bottom: 10px; }
+        .controls { margin-top: 20px; }
+        button { padding: 10px 20px; font-size: 1em; cursor: pointer; }
     </style>
 </head>
 <body>
     <div class="info" id="status">Waiting for connection...</div>
     <div class="board" id="board"></div>
+    <div class="controls">
+        <button onclick="resetGame()">Restart Game</button>
+    </div>
 
     <script>
-        // Replace with your actual backend WebSocket URL once deployed
         const wsUrl = "wss://tttback.onrender.com/ws"; 
         let ws;
+        let mySymbol = null;
 
         function connect() {
             ws = new WebSocket(wsUrl);
             
             ws.onmessage = (event) => {
                 const data = JSON.parse(event.data);
-                document.getElementById("status").innerText = 
-                    `Players: ${data.players}/2 | Turn: ${data.turn}`;
                 
-                const cells = document.querySelectorAll(".cell");
-                data.board.forEach((mark, index) => {
-                    cells[index].innerText = mark;
-                });
+                if (data.type === "init") {
+                    mySymbol = data.symbol;
+                    return;
+                }
+
+                if (data.type === "state") {
+                    let statusText = `Players: ${data.players}/2 | You are: ${mySymbol} | `;
+                    
+                    if (data.winner) {
+                        statusText += data.winner === "Draw" ? "It's a Draw!" : `Player ${data.winner} Wins!`;
+                    } else {
+                        statusText += `Turn: ${data.turn}`;
+                    }
+                    
+                    document.getElementById("status").innerText = statusText;
+                    
+                    const cells = document.querySelectorAll(".cell");
+                    data.board.forEach((mark, index) => {
+                        cells[index].innerText = mark;
+                    });
+                }
             };
         }
 
@@ -49,9 +69,14 @@
             }
         }
 
+        function resetGame() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ action: "reset" }));
+            }
+        }
+
         createBoard();
         connect();
     </script>
 </body>
-
 </html>
