@@ -3,20 +3,21 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tic-Tac-Toe: Multi-Mode</title>
+    <title>Tic-Tac-Toe: Multiplayer</title>
     <style>
         body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; margin-top: 50px; }
         
         /* Layout & Screens */
-        #menu-screen, #game-screen { display: flex; flex-direction: column; align-items: center; }
+        #menu-screen, #game-screen, #lobby-screen { display: flex; flex-direction: column; align-items: center; }
         .hidden { display: none !important; }
         
-        /* Menu Buttons */
-        .menu-btn { margin: 10px; padding: 15px 30px; font-size: 1.2em; cursor: pointer; width: 250px; background: #007bff; color: white; border: none; border-radius: 5px; }
+        /* Buttons & Inputs */
+        .menu-btn { margin: 10px; padding: 15px 30px; font-size: 1.2em; cursor: pointer; width: 280px; background: #007bff; color: white; border: none; border-radius: 5px; }
         .menu-btn:hover { background: #0056b3; }
+        .input-box { padding: 12px; font-size: 1.2em; text-align: center; text-transform: uppercase; letter-spacing: 2px; width: 200px; margin-bottom: 10px; border: 2px solid #ccc; border-radius: 5px; }
         
         /* Game Board */
-        .board { display: grid; grid-template-columns: repeat(3, 100px); gap: 5px; margin-top: 20px; }
+        .board { display: grid; grid-template-columns: repeat(3, 100px); gap: 5px; margin-top: 20px; transition: opacity 0.3s; }
         .cell { width: 100px; height: 100px; font-size: 3em; cursor: pointer; background: #eee; border: 1px solid #ccc; display: flex; align-items: center; justify-content: center; }
         .cell:hover { background: #ddd; }
         
@@ -32,8 +33,20 @@
     <div id="menu-screen">
         <h1>Tic-Tac-Toe</h1>
         <button class="menu-btn" onclick="startGame('local')">Same Device (Local)</button>
-        <button class="menu-btn" onclick="startGame('online')">Different Device (Online)</button>
+        <button class="menu-btn" onclick="showLobby()">Different Device (Online)</button>
         <button class="menu-btn" onclick="startGame('ai')">vs AI (Computer)</button>
+    </div>
+
+    <div id="lobby-screen" class="hidden">
+        <h2>Online Party Lobby</h2>
+        <button class="menu-btn" style="background: #28a745;" onclick="createParty()">Create New Party</button>
+        
+        <h3 style="margin-top: 30px;">OR</h3>
+        
+        <input type="text" id="join-code" class="input-box" placeholder="6-CHAR CODE" maxlength="6">
+        <button class="menu-btn" onclick="joinParty()">Join Party</button>
+        
+        <button class="control-btn" style="margin-top: 20px;" onclick="returnToMenu()">Back to Menu</button>
     </div>
 
     <div id="game-screen" class="hidden">
@@ -43,18 +56,19 @@
         
         <div class="controls">
             <button class="control-btn" onclick="resetGame()">Restart Game</button>
-            <button class="control-btn" onclick="returnToMenu()">Back to Menu</button>
+            <button class="control-btn" onclick="returnToMenu()">Back/Leave</button>
         </div>
     </div>
 
     <script>
         // --- GLOBAL VARIABLES ---
-        let currentMode = ''; // 'local', 'online', 'ai'
+        let currentMode = ''; 
         
         // Online Variables
-        const wsUrl = "wss://tttback.onrender.com/ws"; 
+        const baseWsUrl = "wss://tttback.onrender.com/ws/"; 
         let ws = null;
         let mySymbol = null;
+        let currentRoomCode = null;
         
         // Local/AI Variables
         let localBoard = ["", "", "", "", "", "", "", "", ""];
@@ -62,38 +76,64 @@
         let gameActive = true;
 
         // --- SCREEN NAVIGATION ---
-        function startGame(mode) {
+        function showLobby() {
+            document.getElementById('menu-screen').classList.add('hidden');
+            document.getElementById('lobby-screen').classList.remove('hidden');
+        }
+
+        function startGame(mode, code = null) {
             currentMode = mode;
             document.getElementById('menu-screen').classList.add('hidden');
+            document.getElementById('lobby-screen').classList.add('hidden');
             document.getElementById('game-screen').classList.remove('hidden');
             
-            // Setup specific mode
             if (mode === 'local') {
                 document.getElementById('mode-title').innerText = "Same Device Multiplayer";
                 startLocalGame();
             } else if (mode === 'ai') {
                 document.getElementById('mode-title').innerText = "Playing vs AI";
-                startLocalGame(); // AI uses the same local board logic
+                startLocalGame();
             } else if (mode === 'online') {
-                document.getElementById('mode-title').innerText = "Online Multiplayer";
-                connectOnline();
+                document.getElementById('mode-title').innerText = `Party Code: ${code}`;
+                currentRoomCode = code;
+                connectOnline(code);
             }
         }
 
         function returnToMenu() {
-            // Clean up connections or game state
             if (ws) {
                 ws.close();
                 ws = null;
             }
             document.getElementById('game-screen').classList.add('hidden');
+            document.getElementById('lobby-screen').classList.add('hidden');
             document.getElementById('menu-screen').classList.remove('hidden');
+        }
+
+        // --- PARTY LOGIC ---
+        function createParty() {
+            // Generate a random 6 character alphanumeric code
+            const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+            let code = '';
+            for (let i = 0; i < 6; i++) {
+                code += chars.charAt(Math.floor(Math.random() * chars.length));
+            }
+            startGame('online', code);
+        }
+
+        function joinParty() {
+            const code = document.getElementById('join-code').value.toUpperCase().trim();
+            if (code.length === 6) {
+                startGame('online', code);
+            } else {
+                alert("Please enter a valid 6-character code.");
+            }
         }
 
         // --- BOARD GENERATION ---
         function createBoard() {
             const boardDiv = document.getElementById("board");
-            boardDiv.innerHTML = ""; // Clear existing cells
+            boardDiv.innerHTML = "";
             for (let i = 0; i < 9; i++) {
                 const cell = document.createElement("div");
                 cell.className = "cell";
@@ -103,12 +143,10 @@
             }
         }
 
-        // --- CLICK HANDLER ROUTER ---
-        // --- CLICK HANDLER ROUTER ---
         function handleCellClick(index) {
             if (currentMode === 'online') {
                 if (ws && ws.readyState === WebSocket.OPEN) {
-                    ws.send(JSON.stringify({ action: "move", index: index })); // <--- CHANGED 'i' TO 'index' HERE
+                    ws.send(JSON.stringify({ action: "move", index: index }));
                 }
             } else if (currentMode === 'local') {
                 handleLocalMove(index);
@@ -120,11 +158,13 @@
         // ==========================================
         // 1. ONLINE MULTIPLAYER LOGIC
         // ==========================================
-        function connectOnline() {
-            document.getElementById("status").innerText = "Waiting for connection...";
-            renderBoard(["", "", "", "", "", "", "", "", ""]); // Empty board
+        function connectOnline(code) {
+            document.getElementById("status").innerText = "Connecting to server...";
+            renderBoard(["", "", "", "", "", "", "", "", ""]); 
             
-            ws = new WebSocket(wsUrl);
+            // Connect to the specific room code URL
+            ws = new WebSocket(baseWsUrl + code);
+            
             ws.onmessage = (event) => {
                 const data = JSON.parse(event.data);
                 
@@ -134,13 +174,27 @@
                 }
 
                 if (data.type === "state") {
-                    let statusText = `Players: ${data.players}/2 | You are: ${mySymbol} | `;
-                    if (data.winner) {
-                        statusText += data.winner === "Draw" ? "It's a Draw!" : `Player ${data.winner} Wins!`;
+                    const boardElement = document.getElementById("board");
+                    
+                    // If less than 2 players, lock the board
+                    if (data.players < 2) {
+                        document.getElementById("status").innerText = `Waiting for Player 2... Share Code: ${currentRoomCode}`;
+                        boardElement.style.opacity = "0.4";
+                        boardElement.style.pointerEvents = "none";
                     } else {
-                        statusText += `Turn: ${data.turn}`;
+                        // Game on! Unlock the board
+                        boardElement.style.opacity = "1";
+                        boardElement.style.pointerEvents = "auto";
+                        
+                        let statusText = `You are: ${mySymbol} | `;
+                        if (data.winner) {
+                            statusText += data.winner === "Draw" ? "It's a Draw!" : `Player ${data.winner} Wins!`;
+                        } else {
+                            statusText += `Turn: ${data.turn}`;
+                        }
+                        document.getElementById("status").innerText = statusText;
                     }
-                    document.getElementById("status").innerText = statusText;
+                    
                     renderBoard(data.board);
                 }
             };
@@ -153,6 +207,8 @@
             localBoard = ["", "", "", "", "", "", "", "", ""];
             localTurn = "X";
             gameActive = true;
+            document.getElementById("board").style.opacity = "1";
+            document.getElementById("board").style.pointerEvents = "auto";
             updateLocalStatus();
             renderBoard(localBoard);
         }
@@ -172,12 +228,10 @@
         function handleAIMove(index) {
             if (!gameActive || localBoard[index] !== "" || localTurn !== "X") return;
             
-            // Player Move
             localBoard[index] = "X";
             renderBoard(localBoard);
             if (checkLocalWin()) return;
 
-            // AI Move (Computer is 'O')
             localTurn = "O";
             updateLocalStatus();
             
@@ -186,7 +240,6 @@
                 localBoard.forEach((val, i) => { if(val === "") emptyIndices.push(i); });
                 
                 if (emptyIndices.length > 0) {
-                    // Pick a random empty spot
                     let randomIndex = emptyIndices[Math.floor(Math.random() * emptyIndices.length)];
                     localBoard[randomIndex] = "O";
                     renderBoard(localBoard);
@@ -195,17 +248,15 @@
                     localTurn = "X";
                     updateLocalStatus();
                 }
-            }, 500); // 0.5 second delay to make it feel like the AI is "thinking"
+            }, 500); 
         }
 
-        // --- LOCAL UTILITIES ---
         function checkLocalWin() {
             const combos = [
                 [0, 1, 2], [3, 4, 5], [6, 7, 8],
                 [0, 3, 6], [1, 4, 7], [2, 5, 8],
                 [0, 4, 8], [2, 4, 6]
             ];
-            
             for (let [a, b, c] of combos) {
                 if (localBoard[a] && localBoard[a] === localBoard[b] && localBoard[a] === localBoard[c]) {
                     document.getElementById("status").innerText = `Player ${localBoard[a]} Wins!`;
@@ -213,7 +264,6 @@
                     return true;
                 }
             }
-            
             if (!localBoard.includes("")) {
                 document.getElementById("status").innerText = "It's a Draw!";
                 gameActive = false;
@@ -244,7 +294,6 @@
             }
         }
 
-        // Initialize empty board HTML on page load
         createBoard();
     </script>
 </body>
