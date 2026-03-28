@@ -104,10 +104,11 @@
         }
 
         // --- CLICK HANDLER ROUTER ---
+        // --- CLICK HANDLER ROUTER ---
         function handleCellClick(index) {
             if (currentMode === 'online') {
                 if (ws && ws.readyState === WebSocket.OPEN) {
-                    ws.send(JSON.stringify({ action: "move", index: i }));
+                    ws.send(JSON.stringify({ action: "move", index: index })); // <--- CHANGED 'i' TO 'index' HERE
                 }
             } else if (currentMode === 'local') {
                 handleLocalMove(index);
