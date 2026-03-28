@@ -3,31 +3,127 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Multiplayer Tic-Tac-Toe</title>
+    <title>Tic-Tac-Toe: Multi-Mode</title>
     <style>
         body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; margin-top: 50px; }
+        
+        /* Layout & Screens */
+        #menu-screen, #game-screen { display: flex; flex-direction: column; align-items: center; }
+        .hidden { display: none !important; }
+        
+        /* Menu Buttons */
+        .menu-btn { margin: 10px; padding: 15px 30px; font-size: 1.2em; cursor: pointer; width: 250px; background: #007bff; color: white; border: none; border-radius: 5px; }
+        .menu-btn:hover { background: #0056b3; }
+        
+        /* Game Board */
         .board { display: grid; grid-template-columns: repeat(3, 100px); gap: 5px; margin-top: 20px; }
         .cell { width: 100px; height: 100px; font-size: 3em; cursor: pointer; background: #eee; border: 1px solid #ccc; display: flex; align-items: center; justify-content: center; }
-        .info { font-size: 1.2em; margin-bottom: 10px; }
-        .controls { margin-top: 20px; }
-        button { padding: 10px 20px; font-size: 1em; cursor: pointer; }
+        .cell:hover { background: #ddd; }
+        
+        /* Status & Controls */
+        .info { font-size: 1.2em; margin-bottom: 10px; height: 30px; font-weight: bold; }
+        .controls { margin-top: 20px; display: flex; gap: 10px; }
+        .control-btn { padding: 10px 20px; font-size: 1em; cursor: pointer; border: 1px solid #ccc; background: white; border-radius: 5px;}
+        .control-btn:hover { background: #f0f0f0; }
     </style>
 </head>
 <body>
-    <div class="info" id="status">Waiting for connection...</div>
-    <div class="board" id="board"></div>
-    <div class="controls">
-        <button onclick="resetGame()">Restart Game</button>
+
+    <div id="menu-screen">
+        <h1>Tic-Tac-Toe</h1>
+        <button class="menu-btn" onclick="startGame('local')">Same Device (Local)</button>
+        <button class="menu-btn" onclick="startGame('online')">Different Device (Online)</button>
+        <button class="menu-btn" onclick="startGame('ai')">vs AI (Computer)</button>
+    </div>
+
+    <div id="game-screen" class="hidden">
+        <h2 id="mode-title"></h2>
+        <div class="info" id="status"></div>
+        <div class="board" id="board"></div>
+        
+        <div class="controls">
+            <button class="control-btn" onclick="resetGame()">Restart Game</button>
+            <button class="control-btn" onclick="returnToMenu()">Back to Menu</button>
+        </div>
     </div>
 
     <script>
+        // --- GLOBAL VARIABLES ---
+        let currentMode = ''; // 'local', 'online', 'ai'
+        
+        // Online Variables
         const wsUrl = "wss://tttback.onrender.com/ws"; 
-        let ws;
+        let ws = null;
         let mySymbol = null;
+        
+        // Local/AI Variables
+        let localBoard = ["", "", "", "", "", "", "", "", ""];
+        let localTurn = "X";
+        let gameActive = true;
 
-        function connect() {
-            ws = new WebSocket(wsUrl);
+        // --- SCREEN NAVIGATION ---
+        function startGame(mode) {
+            currentMode = mode;
+            document.getElementById('menu-screen').classList.add('hidden');
+            document.getElementById('game-screen').classList.remove('hidden');
             
+            // Setup specific mode
+            if (mode === 'local') {
+                document.getElementById('mode-title').innerText = "Same Device Multiplayer";
+                startLocalGame();
+            } else if (mode === 'ai') {
+                document.getElementById('mode-title').innerText = "Playing vs AI";
+                startLocalGame(); // AI uses the same local board logic
+            } else if (mode === 'online') {
+                document.getElementById('mode-title').innerText = "Online Multiplayer";
+                connectOnline();
+            }
+        }
+
+        function returnToMenu() {
+            // Clean up connections or game state
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+            document.getElementById('game-screen').classList.add('hidden');
+            document.getElementById('menu-screen').classList.remove('hidden');
+        }
+
+        // --- BOARD GENERATION ---
+        function createBoard() {
+            const boardDiv = document.getElementById("board");
+            boardDiv.innerHTML = ""; // Clear existing cells
+            for (let i = 0; i < 9; i++) {
+                const cell = document.createElement("div");
+                cell.className = "cell";
+                cell.id = `cell-${i}`;
+                cell.onclick = () => handleCellClick(i);
+                boardDiv.appendChild(cell);
+            }
+        }
+
+        // --- CLICK HANDLER ROUTER ---
+        function handleCellClick(index) {
+            if (currentMode === 'online') {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ action: "move", index: i }));
+                }
+            } else if (currentMode === 'local') {
+                handleLocalMove(index);
+            } else if (currentMode === 'ai') {
+                handleAIMove(index);
+            }
+        }
+
+        // ==========================================
+        // 1. ONLINE MULTIPLAYER LOGIC
+        // ==========================================
+        function connectOnline() {
+            document.getElementById("status").innerText = "Waiting for connection...";
+            renderBoard(["", "", "", "", "", "", "", "", ""]); // Empty board
+            
+            ws = new WebSocket(wsUrl);
             ws.onmessage = (event) => {
                 const data = JSON.parse(event.data);
                 
@@ -38,45 +134,117 @@
 
                 if (data.type === "state") {
                     let statusText = `Players: ${data.players}/2 | You are: ${mySymbol} | `;
-                    
                     if (data.winner) {
                         statusText += data.winner === "Draw" ? "It's a Draw!" : `Player ${data.winner} Wins!`;
                     } else {
                         statusText += `Turn: ${data.turn}`;
                     }
-                    
                     document.getElementById("status").innerText = statusText;
-                    
-                    const cells = document.querySelectorAll(".cell");
-                    data.board.forEach((mark, index) => {
-                        cells[index].innerText = mark;
-                    });
+                    renderBoard(data.board);
                 }
             };
         }
 
-        function createBoard() {
-            const boardDiv = document.getElementById("board");
-            for (let i = 0; i < 9; i++) {
-                const cell = document.createElement("div");
-                cell.className = "cell";
-                cell.onclick = () => {
-                    if (ws && ws.readyState === WebSocket.OPEN) {
-                        ws.send(JSON.stringify({ action: "move", index: i }));
-                    }
-                };
-                boardDiv.appendChild(cell);
-            }
+        // ==========================================
+        // 2. LOCAL MULTIPLAYER & AI LOGIC
+        // ==========================================
+        function startLocalGame() {
+            localBoard = ["", "", "", "", "", "", "", "", ""];
+            localTurn = "X";
+            gameActive = true;
+            updateLocalStatus();
+            renderBoard(localBoard);
         }
 
+        function handleLocalMove(index) {
+            if (!gameActive || localBoard[index] !== "") return;
+            
+            localBoard[index] = localTurn;
+            renderBoard(localBoard);
+            
+            if (checkLocalWin()) return;
+            
+            localTurn = localTurn === "X" ? "O" : "X";
+            updateLocalStatus();
+        }
+
+        function handleAIMove(index) {
+            if (!gameActive || localBoard[index] !== "" || localTurn !== "X") return;
+            
+            // Player Move
+            localBoard[index] = "X";
+            renderBoard(localBoard);
+            if (checkLocalWin()) return;
+
+            // AI Move (Computer is 'O')
+            localTurn = "O";
+            updateLocalStatus();
+            
+            setTimeout(() => {
+                let emptyIndices = [];
+                localBoard.forEach((val, i) => { if(val === "") emptyIndices.push(i); });
+                
+                if (emptyIndices.length > 0) {
+                    // Pick a random empty spot
+                    let randomIndex = emptyIndices[Math.floor(Math.random() * emptyIndices.length)];
+                    localBoard[randomIndex] = "O";
+                    renderBoard(localBoard);
+                    
+                    if (checkLocalWin()) return;
+                    localTurn = "X";
+                    updateLocalStatus();
+                }
+            }, 500); // 0.5 second delay to make it feel like the AI is "thinking"
+        }
+
+        // --- LOCAL UTILITIES ---
+        function checkLocalWin() {
+            const combos = [
+                [0, 1, 2], [3, 4, 5], [6, 7, 8],
+                [0, 3, 6], [1, 4, 7], [2, 5, 8],
+                [0, 4, 8], [2, 4, 6]
+            ];
+            
+            for (let [a, b, c] of combos) {
+                if (localBoard[a] && localBoard[a] === localBoard[b] && localBoard[a] === localBoard[c]) {
+                    document.getElementById("status").innerText = `Player ${localBoard[a]} Wins!`;
+                    gameActive = false;
+                    return true;
+                }
+            }
+            
+            if (!localBoard.includes("")) {
+                document.getElementById("status").innerText = "It's a Draw!";
+                gameActive = false;
+                return true;
+            }
+            return false;
+        }
+
+        function updateLocalStatus() {
+            if (!gameActive) return;
+            document.getElementById("status").innerText = `Turn: Player ${localTurn}`;
+        }
+
+        function renderBoard(boardArray) {
+            boardArray.forEach((mark, index) => {
+                document.getElementById(`cell-${index}`).innerText = mark;
+            });
+        }
+
+        // --- RESTART ROUTER ---
         function resetGame() {
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ action: "reset" }));
+            if (currentMode === 'online') {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ action: "reset" }));
+                }
+            } else {
+                startLocalGame();
             }
         }
 
+        // Initialize empty board HTML on page load
         createBoard();
-        connect();
     </script>
 </body>
 </html>
